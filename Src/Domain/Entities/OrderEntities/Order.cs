@@ -23,7 +23,8 @@ namespace Domain.Entities.OrderEntities
 
         public decimal GetOriginalTotal()
         {
-            return SubTotal + DeliveryMethod.Price;
+            // Prefer the immutable charge, even if delivery prices have since changed.
+            return Portal != null ? Portal.Amount : SubTotal + (DeliveryMethod?.Price ?? 0);
         }
 
         public List<OrderItem> OrderItems { get; set; } = new();

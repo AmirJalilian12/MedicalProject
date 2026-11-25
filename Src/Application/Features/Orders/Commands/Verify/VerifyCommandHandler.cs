@@ -59,12 +59,12 @@ namespace Application.Features.Orders.Commands.Verify
                 throw new BadRequestException("در پرداخت شما مشکلی بوجود آمده است لطفا با پشتیبانی تماس بگیرید");
 
             // 3. در صورت انصراف کاربر در صفحه درگاه
+            if (order.IsFinally && portal.Status == PaymentDataStatus.Success)
+                return _configuration["Order:CallBackSuccess"];
+
             if (request.Status != "OK")
             {
                 order.OrderStatus = OrderStatus.Canceled;
-                await _unitOfWork.Repository<Order>().UpdateAsync(order);
-                await _unitOfWork.Save(cancellationToken);
-
                 portal.Status = PaymentDataStatus.Canceled;
                 await _unitOfWork.Repository<Portal>().UpdateAsync(portal);
                 await _unitOfWork.Save(cancellationToken);
@@ -73,16 +73,13 @@ namespace Application.Features.Orders.Commands.Verify
             }
 
             // 4. اعتبارسنجی پرداخت با سندباکس زرین‌پال V4
-            var amount = (int)order.GetOriginalTotal();
+            var amount = portal.Amount;
             var (isVerified, refId) = await VerifyZarinpalSandboxAsync(amount, request.Authority);
 
             if (isVerified)
             {
                 order.IsFinally = true;
                 order.OrderStatus = OrderStatus.Pending;
-                await _unitOfWork.Repository<Order>().UpdateAsync(order);
-                await _unitOfWork.Save(cancellationToken);
-
                 portal.ReferenceId = refId;
                 portal.Status = PaymentDataStatus.Success;
                 await _unitOfWork.Repository<Portal>().UpdateAsync(portal);
@@ -93,9 +90,6 @@ namespace Application.Features.Orders.Commands.Verify
             else
             {
                 order.OrderStatus = OrderStatus.PaymentFailed;
-                await _unitOfWork.Repository<Order>().UpdateAsync(order);
-                await _unitOfWork.Save(cancellationToken);
-
                 portal.Status = PaymentDataStatus.Failed;
                 await _unitOfWork.Repository<Portal>().UpdateAsync(portal);
                 await _unitOfWork.Save(cancellationToken);
@@ -104,7 +98,7 @@ namespace Application.Features.Orders.Commands.Verify
             }
         }
 
-        private async Task<(bool IsVerified, string RefId)> VerifyZarinpalSandboxAsync(int amount, string authority)
+        private async Task<(bool IsVerified, string RefId)> VerifyZarinpalSandboxAsync(long amount, string authority)
         {
             using var client = new HttpClient();
 
@@ -127,7 +121,7 @@ namespace Application.Features.Orders.Commands.Verify
             using var doc = JsonDocument.Parse(responseBody);
             var root = doc.RootElement;
 
-            if (root.TryGetProperty("data", out var dataElement) && dataElement.ValueKind != JsonValueKind.Null)
+            if (root.TryGetProperty("data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Object)
             {
                 if (dataElement.TryGetProperty("code", out var code) && (code.GetInt32() == 100 || code.GetInt32() == 101))
                 {

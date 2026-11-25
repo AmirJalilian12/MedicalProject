@@ -33,6 +33,7 @@ namespace Application.Features.Orders.Queries.GetOrdersForUser
             var orders = await _unitOfWork.Repository<Order>()
                 .Where(x => x.CreatedBy == _currentService.UserId)
                 .Include(x => x.DeliveryMethod)
+                .Include(x => x.Portal)
                 .Include(x => x.ShipToAddress)
                 .Include(x => x.OrderItems)
                 .AsNoTracking()

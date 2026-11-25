@@ -1,6 +1,7 @@
 ﻿using Application.DTOs.Orders;
 using Application.Features.Orders.Commands.Create;
 using Application.Features.Orders.Commands.Verify;
+using Application.Features.Orders.Queries.GetDeliveryMethodById;
 using Application.Features.Orders.Queries.GetDeliveryMethods;
 using Application.Features.Orders.Queries.GetOrderByIdForUser;
 using Application.Features.Orders.Queries.GetOrdersForUser;
@@ -11,6 +12,7 @@ using Web.Common;
 
 namespace Web.Controllers
 {
+    [Authorize]
     public class OrderController : BaseApiController
     {
         [HttpPost("CreateOrder")]
@@ -38,8 +40,13 @@ namespace Web.Controllers
         [AllowAnonymous]
         public async Task<IActionResult>GetDeliveryMethodById(int id ,CancellationToken cancellationToken)
         {
-            return Ok(await Mediator.Send(new GetOrderByIdForUserQuery(id),cancellationToken));
+            return Ok(await Mediator.Send(new GetDeliveryMethodByIdQuery(id), cancellationToken));
         }
+        [HttpGet("ReturnToStore")]
+        [AllowAnonymous]
+        public IActionResult ReturnToStore([FromServices] IConfiguration configuration) =>
+            Redirect(configuration["Order:StoreHome"] ?? "/");
+
         [HttpGet("Verify")]
         [AllowAnonymous]
         public async Task<IActionResult> Verify(string authority , string status , CancellationToken cancellationToken)

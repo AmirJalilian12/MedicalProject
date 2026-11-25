@@ -5,6 +5,8 @@ using Domain.Entities.BasketEntities;
 using Domain.Entities.OrderEntities;
 using Domain.Enums;
 using Domain.Exceptions;
+using Microsoft.EntityFrameworkCore;
+using CatalogProduct = Domain.Entities.ProductEntities.Product;
 using MapsterMapper;
 using MediatR;
 using Microsoft.Extensions.Configuration;
@@ -67,18 +69,38 @@ namespace Application.Features.Orders.Commands.Create
                 .GetByIdAsync(request.DeliveryMethodId, cancellationToken);
 
             // 3. محاسبه مبلغ و ارتباط با سندباکس زرین‌پال (REST V4)
-            var amount = (int)basket.CalculateOriginalPrice();
+            if (deliveryMethod == null || deliveryMethod.IsDelete || deliveryMethod.Price < 0)
+                throw new BadRequestException("روش ارسال معتبر نیست.");
+            if (basket.Items == null || basket.Items.Count == 0 || basket.Items.Any(x => x == null || x.Quantity <= 0))
+                throw new BadRequestException("سبد خرید یا تعداد کالا معتبر نیست.");
+            var ids = basket.Items.Select(x => x.Id).Distinct().ToArray();
+            if (ids.Length != basket.Items.Count)
+                throw new BadRequestException("کالای تکراری در سبد خرید.");
+            var products = await _unitOfWork.Context.Set<CatalogProduct>()
+                .Where(p => ids.Contains(p.Id) && p.IsActive && !p.IsDelete)
+                .Select(p => new { p.Id, p.Title, p.Price, p.PictureUrl, Brand = p.ProductBrand.Title, Type = p.ProductType.Title })
+                .ToDictionaryAsync(p => p.Id, cancellationToken);
+            foreach (var line in basket.Items)
+            {
+                if (!products.TryGetValue(line.Id, out var product) || product.Price < 0)
+                    throw new BadRequestException("کالا دیگر قابل سفارش نیست.");
+                line.Price = product.Price;
+                line.Product = product.Title;
+                line.Brand = product.Brand;
+                line.Type = product.Type;
+                line.PictureUrl = product.PictureUrl;
+            }
+            var total = basket.CalculateOriginalPrice() + deliveryMethod.Price;
+            if (total <= 0 || total > int.MaxValue || total != decimal.Truncate(total))
+                throw new BadRequestException("مبلغ قابل ارسال به درگاه نیست.");
+            var amount = (int)total;
             var (authority, paymentLink) = await RequestZarinpalSandboxAsync(amount, request.BuyerPhoneNumber);
 
             // 4 & 5. ایجاد سفارش
             var result = await CreateOrder(request, cancellationToken, basket, deliveryMethod, authority);
 
-            // 6. حذف سبد خرید
-            await _basketRepository.DeleteBasketAsync(basket.Id);
-
-            // 7. ثبت در جدول Portal
-            var portal = new Portal(result.Id, result.PortalType, PaymentDataStatus.Pending, amount, null);
-            await _unitOfWork.Repository<Portal>().AddAsync(portal, cancellationToken);
+            // Keep the basket available when payment is cancelled or fails.
+            result.Portal = new Portal(result.Id, result.PortalType, PaymentDataStatus.Pending, amount, null);
             await _unitOfWork.Save(cancellationToken);
 
             // 8. مپ خروجی و قرار دادن لینک درگاه
@@ -164,7 +186,6 @@ namespace Application.Features.Orders.Commands.Create
             if (result == null)
                 throw new BadRequestException("سفارش شما با شکست روبرو شد لطفا مجدد تلاش کنید");
 
-            await _unitOfWork.Save(cancellationToken);
             return result;
         }
     }

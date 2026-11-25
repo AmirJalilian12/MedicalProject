@@ -14,7 +14,7 @@ services:
     environment:
       - REDIS_HOSTS=local:basketdb:6379
       - HTTP_USER=root
-      - HTTP_PASSWORD=secret
+      - HTTP_PASSWORD=${REDIS_COMMANDER_PASSWORD:?Set REDIS_COMMANDER_PASSWORD}
     ports:
       - "8081:8081"
     depends_on:

@@ -35,8 +35,10 @@ namespace Application.Features.Orders.Queries.GetOrderByIdForUser
         }
         public async Task<OrderDto> Handle(GetOrderByIdForUserQuery request, CancellationToken cancellationToken)
         {
-            var order = await _unitOfWork.Repository<Order>().Where(x => x.Id == request.Id)
-                .FirstOrDefaultAsync(cancellationToken);
+            var order = await _unitOfWork.Repository<Order>().Where(x => x.Id == request.Id && x.CreatedBy == _currentService.UserId)
+                .Include(x => x.OrderItems).Include(x => x.DeliveryMethod).Include(x => x.Portal)
+                .AsNoTracking().FirstOrDefaultAsync(cancellationToken)
+                ?? throw new Domain.Exceptions.NotFoundException();
             return _mapper.Map<OrderDto>(order);
         }
     }
